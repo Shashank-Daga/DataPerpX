@@ -1,0 +1,16 @@
+pandas
+numpy
+scikit-learn
+matplotlib
+seaborn
+PyYAML
+reportlab
+python-docx
+openpyxl
+streamlit
+plotly
+
+shap
+lime
+
+Pillow
