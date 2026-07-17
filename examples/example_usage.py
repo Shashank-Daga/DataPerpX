@@ -14,7 +14,7 @@ def example_1_classification():
     logger.info("Example 1: Classification Task - Loan Approval Prediction")
     logger.info("=" * 60)
     
-    config = load_config('configs/default_config.yaml')
+    config = load_config('config/default_config.yaml')
     
     preprocessor = DataPreprocessor(config['preprocessing'])
     df_clean, metadata = preprocessor.process('data/loan_approval.csv')
@@ -46,7 +46,7 @@ def example_2_regression():
     logger.info("Example 2: Regression Task - Housing Price Prediction")
     logger.info("=" * 60)
     
-    config = load_config('configs/default_config.yaml')
+    config = load_config('config/default_config.yaml')
     
     preprocessor = DataPreprocessor(config['preprocessing'])
     df_clean, metadata = preprocessor.process('data/housing_prices.csv')
@@ -134,7 +134,7 @@ def example_4_data_exploration_only():
     logger.info("Example 4: Data Exploration Without Modeling")
     logger.info("=" * 60)
     
-    config = load_config('configs/default_config.yaml')
+    config = load_config('config/default_config.yaml')
     
     preprocessor = DataPreprocessor(config['preprocessing'])
     df_clean, metadata = preprocessor.process('data/loan_approval.csv')
@@ -163,7 +163,7 @@ def example_5_excel_input():
     logger.info("Example 5: Processing Excel File")
     logger.info("=" * 60)
     
-    config = load_config('configs/default_config.yaml')
+    config = load_config('config/default_config.yaml')
     
     preprocessor = DataPreprocessor(config['preprocessing'])
     df_clean, metadata = preprocessor.process('data/housing_prices.xlsx')

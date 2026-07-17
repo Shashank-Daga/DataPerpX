@@ -173,6 +173,8 @@ with st.sidebar:
     with st.expander("🔧 Advanced Settings"):
         enable_explain = st.checkbox("Generate Explainability Analysis", True)
         parallel_training = st.checkbox("Parallel Model Training", True)
+        enable_tuning = st.checkbox("Enable Hyperparameter Tuning", False,
+                help="Runs GridSearchCV over RandomForest/GradientBoosting. Slower, but can improve model performance.")
 
         test_size = st.slider("Test Set Size", 0.1, 0.4, 0.2, 0.05)
         cv_folds = st.slider("Cross-Validation Folds", 3, 10, 5)
@@ -368,6 +370,7 @@ elif st.session_state.original_data is not None:
                     config['estimation']['test_size'] = test_size
                     config['estimation']['cv_folds'] = cv_folds
                     config['estimation']['parallel_training'] = parallel_training
+                    config['estimation']['enable_hyperparameter_tuning'] = enable_tuning
 
                     # Preprocessing
                     status_text.text("🔄 Preprocessing data...")
@@ -385,7 +388,19 @@ elif st.session_state.original_data is not None:
                     df_clean, metadata = preprocessor.process(str(temp_file))
 
                     temp_file.unlink()
-                    df_clean[target_column] = target_data.values
+
+                    # Reattach by index, not position: preprocessing steps like duplicate removal and z-score
+                    # outlier filtering can drop rows, so target_data (still original length) would
+                    # otherwise misalign or raise a length-mismatch error.
+                    df_clean[target_column] = target_data.reindex(df_clean.index)
+                    dropped = df_clean[target_column].isna().sum()
+                    if dropped > 0:
+                        df_clean = df_clean.dropna(subset=[target_column])
+                        st.warning(
+                            f"⚠️ {dropped} row(s) were removed during preprocessing "
+                            f"(duplicates/outliers); target realigned to "
+                            f"{len(df_clean)} remaining rows."
+                        )
 
                     st.session_state.processed_data = df_clean
                     st.session_state.metadata = metadata
@@ -434,22 +449,33 @@ elif st.session_state.original_data is not None:
                                 'shape': df_clean.shape
                             }
                             
-                            ai_summary = summarizer.generate_summary(df_info, metadata, results)
+                            ai_summary, ai_summary_source = summarizer.generate_summary(df_info, metadata, results)
                             st.session_state.ai_summary = ai_summary
+                            st.session_state.ai_summary_source = ai_summary_source
                             results['ai_summary'] = ai_summary
+                            results['ai_summary_source'] = ai_summary_source
+
+                            if ai_summary_source == 'fallback':
+                                st.info(
+                                    "ℹ️ The local LLM wasn't reachable, so this summary was "
+                                    "generated from a template instead of AI."
+                                )
                             
                             # Generate additional AI insights if enabled
                             if enable_ai_insights:
-                                data_quality_report = summarizer.generate_data_quality_report(df_clean, metadata)
-                                model_insights = summarizer.generate_model_insights(results)
-                                business_recommendations = summarizer.generate_business_recommendations(
+                                data_quality_report, dq_source = summarizer.generate_data_quality_report(df_clean, metadata)
+                                model_insights, mi_source = summarizer.generate_model_insights(results)
+                                business_recommendations, br_source = summarizer.generate_business_recommendations(
                                     df_info, metadata, results
                                 )
                                 
                                 st.session_state.ai_insights = {
                                     'data_quality': data_quality_report,
+                                    'data_quality_source': dq_source,
                                     'model_insights': model_insights,
-                                    'business_recommendations': business_recommendations
+                                    'model_insights_source': mi_source,
+                                    'business_recommendations': business_recommendations,
+                                    'business_recommendations_source': br_source
                                 }
                         except Exception as e:
                             st.warning(f"⚠️ AI summary generation failed: {str(e)}")
@@ -542,7 +568,12 @@ elif st.session_state.original_data is not None:
     # Tab 3: AI Insights (NEW)
     with tab3:
         if st.session_state.ai_summary:
-            st.subheader("🤖 AI-Generated Executive Summary")
+            summary_source = getattr(st.session_state, 'ai_summary_source', 'llm')
+            if summary_source == 'fallback':
+                st.subheader("📋 Executive Summary (Template — LLM unavailable)")
+                st.caption("This was generated from a fixed template because the local LLM couldn't be reached.")
+            else:
+                st.subheader("🤖 AI-Generated Executive Summary")
             
             st.markdown(f"""
             <div class="ai-summary-box">
@@ -557,6 +588,13 @@ elif st.session_state.original_data is not None:
                 insights = st.session_state.ai_insights
                 
                 col1, col2 = st.columns(2)
+
+                dq_label = "📊 Data Quality Report" + (
+                    " (template)" if insights.get('data_quality_source') == 'fallback' else ""
+                )
+                mi_label = "🎯 Model Insights" + (
+                    " (template)" if insights.get('model_insights_source') == 'fallback' else ""
+                )
                 
                 with col1:
                     with st.expander("📊 Data Quality Report", expanded=True):
@@ -567,7 +605,10 @@ elif st.session_state.original_data is not None:
                         st.markdown(insights['model_insights'])
                 
                 st.divider()
-                
+
+                br_label = "💼 Business Recommendations" + (
+                    " (template)" if insights.get('business_recommendations_source') == 'fallback' else ""
+                )
                 with st.expander("💼 Business Recommendations", expanded=True):
                     st.markdown(insights['business_recommendations'])
         else:

@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 from typing import Dict, Any
-from sklearn.model_selection import train_test_split, cross_val_score, StratifiedKFold, KFold
+from sklearn.model_selection import train_test_split, cross_val_score, StratifiedKFold, KFold, GridSearchCV
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor, GradientBoostingClassifier, \
     GradientBoostingRegressor
 from sklearn.linear_model import LogisticRegression, LinearRegression, Ridge, Lasso
@@ -21,6 +21,7 @@ class ModelEstimator:
         self.best_model = None
         self.best_score = -np.inf
         self.task_type = None
+        self.n_jobs = -1
 
     def fit_and_evaluate(self, df: pd.DataFrame, target_col: str, task: str = 'auto') -> Dict[str, Any]:
         if target_col not in df.columns:
@@ -142,6 +143,10 @@ class ModelEstimator:
         cv_folds = self._determine_cv_folds(y_train)
         logger.info(f"Using {cv_folds}-fold cross-validation")
 
+        # Honor the parallel_training toggle: -1 uses all cores, 1 is sequential.
+        self.n_jobs = -1 if self.config.get('parallel_training', True) else 1
+        tune = self.config.get('enable_hyperparameter_tuning', False)
+
         models_to_try = self._get_models()
 
         results = {
@@ -156,8 +161,25 @@ class ModelEstimator:
         # Train and evaluate each model
         for name, model in models_to_try.items():
             try:
-                logger.info(f"Training {name}...")
-                model.fit(X_train, y_train)
+                if tune and name in ('RandomForest', 'GradientBoosting'):
+                    logger.info(f"Tuning {name} via GridSearchCV...")
+                    param_grid = {
+                        'n_estimators': [50, 100, 200],
+                        'max_depth': [5, 10, None] if name == 'RandomForest' else [3, 5, 7],
+                    }
+                    grid = GridSearchCV(
+                        model, param_grid,
+                        cv=min(cv_folds, 3),
+                        n_jobs=self.n_jobs,
+                        scoring='accuracy' if self.task_type == 'classification' else 'r2'
+                    )
+                    grid.fit(X_train, y_train)
+                    model = grid.best_estimator_
+                    logger.info(f"{name} best params: {grid.best_params_}")
+                else:
+                    logger.info(f"Training {name}...")
+                    model.fit(X_train, y_train)
+
                 y_pred = model.predict(X_test)
 
                 if self.task_type == 'classification':

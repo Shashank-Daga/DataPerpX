@@ -1,4 +1,4 @@
-.PHONY: help install test clean run-examples generate-data lint format
+.PHONY: help install test clean run-examples generate-data lint format run quick-start
 
 help:
 	@echo "DataPrepX - Available Commands"
@@ -12,7 +12,8 @@ help:
 	@echo "make clean          - Clean generated files"
 	@echo "make generate-data  - Generate sample datasets"
 	@echo "make run-examples   - Run all examples"
-	@echo "make quick-start    - Quick start demo"
+	@echo "make run            - Launch the Streamlit app"
+	@echo "make quick-start    - Generate sample data, then launch the app"
 
 install:
 	pip install -r requirements.txt
@@ -34,11 +35,11 @@ test-integration:
 	python -m pytest tests/ -m integration -v
 
 lint:
-	flake8 modules/ main.py --max-line-length=120
+	flake8 modules/ app.py --max-line-length=120
 	mypy modules/ --ignore-missing-imports
 
 format:
-	black modules/ main.py tests/ --line-length=120
+	black modules/ app.py tests/ --line-length=120
 
 clean:
 	rm -rf output/*
@@ -60,15 +61,12 @@ run-examples:
 	python examples/example_usage.py --all
 
 quick-start: generate-data
-	@echo "Running quick start demo..."
-	python main.py --input data/loan_approval.csv --target loan_approved --report-format pdf
-	@echo "✓ Demo complete! Check output/ directory"
+	@echo "Launching DataPrepX web app..."
+	@echo "Upload data/loan_approval.csv and select 'loan_approved' as the target column."
+	streamlit run app.py
 
-demo-classification: generate-data
-	python main.py --input data/loan_approval.csv --target loan_approved --report-format pdf
-
-demo-regression: generate-data
-	python main.py --input data/housing_prices.csv --target price --task regression --report-format both
+run:
+	streamlit run app.py
 
 setup: install generate-data
 	@echo "✓ Setup complete! Ready to use DataPrepX"

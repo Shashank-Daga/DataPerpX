@@ -49,6 +49,12 @@ class DataPreprocessor:
         
         strategy = self.config.get('missing_strategy', 'auto')
         threshold = self.config.get('missing_threshold', 0.5)
+
+        if strategy == 'auto':
+            # KNN imputation is more accurate but O(n^2)-ish;
+            # only worth it on smaller datasets. Fall back to median/most-frequent otherwise.
+            strategy = 'knn' if len(df) <= 2000 else 'median'
+            logger.info(f"Auto selected missing value strategy: {strategy}")
         
         high_missing_cols = missing_summary[missing_summary / len(df) > threshold].index.tolist()
         if high_missing_cols:
@@ -89,6 +95,13 @@ class DataPreprocessor:
     
     def _handle_outliers(self, df: pd.DataFrame) -> pd.DataFrame:
         method = self.config.get('outlier_method', 'iqr')
+
+        if method == 'auto':
+            # IQR is the more conservative, distribution-agnostic default
+            # (z-score assumes near-normal data and drops rows outright).
+            method = 'iqr'
+            logger.info("Auto selected outlier method: iqr")
+
         numeric_cols = df.select_dtypes(include=[np.number]).columns
         
         outliers_count = {}
@@ -151,6 +164,13 @@ class DataPreprocessor:
             return df
         
         scaler_type = self.config.get('scaler', 'standard')
+
+        if scaler_type == 'auto':
+            # Robust scaling (median/IQR) is preferable when features are
+            # heavily skewed / outlier-prone; standard scaling otherwise.
+            max_abs_skew = df[numeric_cols].skew().abs().max()
+            scaler_type = 'robust' if max_abs_skew > 1.0 else 'standard'
+            logger.info(f"Auto selected scaler: {scaler_type} (max abs skew = {max_abs_skew:.2f})")
         
         if scaler_type == 'robust':
             scaler = RobustScaler()

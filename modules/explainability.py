@@ -64,7 +64,7 @@ class ExplainabilityAnalyzer:
             explainer = shap.TreeExplainer(model)
             shap_values = explainer.shap_values(X_sample)
             explainer_type = 'tree'
-        except:
+        except Exception:
             try:
                 X_background = shap.sample(X, 50)
                 explainer = shap.KernelExplainer(model.predict, X_background)
@@ -193,7 +193,7 @@ class ExplainabilityAnalyzer:
     
     def get_feature_explanations(self, top_n: int = 10) -> Dict[str, str]:
         
-        if not self.shap_values is not None:
+        if self.shap_values is None:
             return {}
         
         mean_abs_shap = np.abs(self.shap_values).mean(axis=0)

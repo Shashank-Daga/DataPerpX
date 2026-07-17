@@ -40,16 +40,13 @@ setup(
             'mypy>=1.0.0',
         ],
     },
-    entry_points={
-        'console_scripts': [
-            'dataprepx=main:main',
-        ],
-    },
+    # No console_scripts entry point: DataPrepX is a Streamlit app, launched
+    # via `streamlit run app.py` (see Makefile's `make run` / `make quick-start`).
     include_package_data=True,
     package_data={
         'dataprepx': [
-            'configs/*.yaml',
-            'configs/templates/*.txt',
+            'config/*.yaml',
+            'templates/*.html',
         ],
     },
     zip_safe=False,

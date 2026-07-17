@@ -32,7 +32,9 @@ class AISummarizer:
         return '\n\n'.join(cleaned_lines)
 
     def generate_summary(self, df_info: Dict[str, Any], metadata: Dict[str, Any],
-                         results: Optional[Dict[str, Any]] = None) -> str:
+                         results: Optional[Dict[str, Any]] = None) -> tuple:
+        """Returns (summary_text, source) where source is 'llm' or 'fallback',
+        so callers can tell the user whether this was actually AI-generated."""
 
         prompt = self._build_prompt(df_info, metadata, results)
 
@@ -119,7 +121,7 @@ flowing paragraphs only."""
             logger.warning(f"Model insights generation failed: {e}")
             return self._clean_text(self._fallback_model_insights(results))
 
-    def generate_feature_analysis(self, df: pd.DataFrame, target_col: str) -> str:
+    def generate_feature_analysis(self, df: pd.DataFrame, target_col: str) -> tuple:
 
         numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
         if target_col in numeric_cols:
@@ -434,6 +436,39 @@ but avoid bullet points."""
     def _fallback_business_recommendations(self, results: Optional[Dict[str, Any]]) -> str:
         parts = []
         parts.append("BUSINESS RECOMMENDATIONS")
+
+        if results and results.get('best_model'):
+            task = results.get('task_type', 'the target variable')
+            score = results.get('best_score', 0)
+            model = results.get('best_model')
+
+            parts.append(
+                f"The {model} model was selected as the best performer for this "
+                f"{task} task, achieving a score of {score:.4f}."
+            )
+
+            if results.get('task_type') == 'classification' and score < 0.7:
+                parts.append(
+                    "Model accuracy is moderate; consider gathering more training "
+                    "data or engineering additional features before deployment."
+                )
+            elif results.get('task_type') == 'regression' and score < 0.5:
+                parts.append(
+                    "The R\u00b2 score suggests the model explains less than half "
+                    "of the variance in the target; treat predictions with caution."
+                )
+            else:
+                parts.append(
+                    "Model performance appears solid; validate on a held-out or "
+                    "more recent dataset before production use."
+                )
+
+            if results.get('feature_importance'):
+                top_feature = next(iter(results['feature_importance']))
+                parts.append(f"'{top_feature}' was the most influential feature and is worth monitoring for drift.")
+        else:
+            parts.append("No trained model was available; recommendations are limited to data quality.")
+
         parts.append("Deploy model in controlled environment with monitoring")
         parts.append("Track key performance indicators against baseline")
         parts.append("Establish feedback loop for continuous improvement")

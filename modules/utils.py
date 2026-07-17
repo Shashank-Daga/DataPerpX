@@ -108,20 +108,3 @@ def calculate_memory_usage(df: pd.DataFrame) -> Dict[str, float]:
         'mb': memory_bytes / (1024 ** 2),
         'gb': memory_bytes / (1024 ** 3)
     }
-
-class TemplateLoader:
-    def __init__(self, template_dir: str = 'configs/templates'):
-        self.template_dir = Path(template_dir)
-    
-    def load(self, template_name: str) -> str:
-        template_path = self.template_dir / f"{template_name}.txt"
-        
-        if not template_path.exists():
-            raise FileNotFoundError(f"Template not found: {template_path}")
-        
-        with open(template_path, 'r') as f:
-            return f.read()
-    
-    def render(self, template_name: str, **kwargs) -> str:
-        template = self.load(template_name)
-        return template.format(**kwargs)

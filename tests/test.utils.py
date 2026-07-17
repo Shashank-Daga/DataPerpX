@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from modules.utils import (
     load_config, save_config, load_data, save_data,
     detect_column_types, calculate_memory_usage, 
-    get_timestamp, TemplateLoader
+    get_timestamp
 )
 
 class TestConfigOperations(unittest.TestCase):
@@ -178,37 +178,6 @@ class TestTimestamp(unittest.TestCase):
         self.assertEqual(len(parts), 2)
         self.assertEqual(len(parts[0]), 8)
         self.assertEqual(len(parts[1]), 6)
-
-class TestTemplateLoader(unittest.TestCase):
-    
-    def setUp(self):
-        self.template_dir = Path('test_templates')
-        self.template_dir.mkdir(exist_ok=True)
-        
-        self.template_content = "Hello {name}, your score is {score}."
-        template_file = self.template_dir / 'greeting.txt'
-        
-        with open(template_file, 'w') as f:
-            f.write(self.template_content)
-        
-        self.loader = TemplateLoader(str(self.template_dir))
-    
-    def tearDown(self):
-        import shutil
-        if self.template_dir.exists():
-            shutil.rmtree(self.template_dir)
-    
-    def test_load_template(self):
-        template = self.loader.load('greeting')
-        self.assertEqual(template, self.template_content)
-    
-    def test_render_template(self):
-        rendered = self.loader.render('greeting', name='Alice', score=95)
-        self.assertEqual(rendered, "Hello Alice, your score is 95.")
-    
-    def test_load_nonexistent_template(self):
-        with self.assertRaises(FileNotFoundError):
-            self.loader.load('nonexistent')
 
 if __name__ == '__main__':
     unittest.main()
