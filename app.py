@@ -150,20 +150,20 @@ with st.sidebar:
 
     # AI Configuration Section
     st.subheader("🤖 AI Configuration")
-    
+
     with st.expander("AI Settings", expanded=False):
         ai_api_url = st.text_input(
             "AI API URL",
             value="http://localhost:1234/v1/chat/completions",
             help="LLM Studio API endpoint"
         )
-        
+
         ai_model = st.text_input(
             "Model Name",
             value="openai/gpt-oss-20b",
             help="Model identifier for LLM Studio"
         )
-        
+
         enable_ai_summary = st.checkbox("Generate AI Summary", value=True)
         enable_ai_insights = st.checkbox("Generate AI Insights", value=True)
 
@@ -174,7 +174,7 @@ with st.sidebar:
         enable_explain = st.checkbox("Generate Explainability Analysis", True)
         parallel_training = st.checkbox("Parallel Model Training", True)
         enable_tuning = st.checkbox("Enable Hyperparameter Tuning", False,
-                help="Runs GridSearchCV over RandomForest/GradientBoosting. Slower, but can improve model performance.")
+                                    help="Runs GridSearchCV over RandomForest/GradientBoosting. Slower, but can improve model performance.")
 
         test_size = st.slider("Test Set Size", 0.1, 0.4, 0.2, 0.05)
         cv_folds = st.slider("Cross-Validation Folds", 3, 10, 5)
@@ -377,30 +377,26 @@ elif st.session_state.original_data is not None:
                     progress_bar.progress(30)
                     time.sleep(0.5)
 
-                    # Save original data temporarily
-                    target_data = df[target_column].copy()
-                    df_features = df.drop(columns=[target_column])
-
-                    temp_file = Path('temp_upload.csv')
-                    df_features.to_csv(temp_file, index=False)
+                    # Leak-free flow: split the RAW data first, then fit
+                    # preprocessing statistics (imputers/scalers/outlier
+                    # bounds/encoders) on the training portion ONLY, and
+                    # apply them unchanged to the test portion. Fitting on
+                    # the combined data (the old behavior) leaks test-set
+                    # statistics into training.
+                    estimator = ModelEstimator(config['estimation'])
+                    df_train_raw, df_test_raw, task_type = estimator.split_raw(
+                        df, target_column, task_type
+                    )
 
                     preprocessor = DataPreprocessor(config['preprocessing'])
-                    df_clean, metadata = preprocessor.process(str(temp_file))
+                    df_train_clean, metadata = preprocessor.fit_transform(
+                        df_train_raw, target_column=target_column
+                    )
+                    df_test_clean = preprocessor.transform(df_test_raw)
 
-                    temp_file.unlink()
-
-                    # Reattach by index, not position: preprocessing steps like duplicate removal and z-score
-                    # outlier filtering can drop rows, so target_data (still original length) would
-                    # otherwise misalign or raise a length-mismatch error.
-                    df_clean[target_column] = target_data.reindex(df_clean.index)
-                    dropped = df_clean[target_column].isna().sum()
-                    if dropped > 0:
-                        df_clean = df_clean.dropna(subset=[target_column])
-                        st.warning(
-                            f"⚠️ {dropped} row(s) were removed during preprocessing "
-                            f"(duplicates/outliers); target realigned to "
-                            f"{len(df_clean)} remaining rows."
-                        )
+                    # Combined view for display/explainability/reporting only
+                    # (never fed back into model training or metric scoring).
+                    df_clean = pd.concat([df_train_clean, df_test_clean], ignore_index=True)
 
                     st.session_state.processed_data = df_clean
                     st.session_state.metadata = metadata
@@ -410,8 +406,9 @@ elif st.session_state.original_data is not None:
                     progress_bar.progress(60)
                     time.sleep(0.5)
 
-                    estimator = ModelEstimator(config['estimation'])
-                    results = estimator.fit_and_evaluate(df_clean, target_column, task_type)
+                    results = estimator.fit_and_evaluate_presplit(
+                        df_train_clean, df_test_clean, target_column, task_type
+                    )
                     st.session_state.results = results
                     st.session_state.estimator = estimator
 
@@ -441,14 +438,14 @@ elif st.session_state.original_data is not None:
                                 'api_url': ai_api_url,
                                 'model': ai_model
                             }
-                            
+
                             summarizer = AISummarizer(ai_config)
                             df_info = {
                                 'columns': df_clean.columns.tolist(),
                                 'dtypes': df_clean.dtypes.to_dict(),
                                 'shape': df_clean.shape
                             }
-                            
+
                             ai_summary, ai_summary_source = summarizer.generate_summary(df_info, metadata, results)
                             st.session_state.ai_summary = ai_summary
                             st.session_state.ai_summary_source = ai_summary_source
@@ -460,15 +457,16 @@ elif st.session_state.original_data is not None:
                                     "ℹ️ The local LLM wasn't reachable, so this summary was "
                                     "generated from a template instead of AI."
                                 )
-                            
+
                             # Generate additional AI insights if enabled
                             if enable_ai_insights:
-                                data_quality_report, dq_source = summarizer.generate_data_quality_report(df_clean, metadata)
+                                data_quality_report, dq_source = summarizer.generate_data_quality_report(df_clean,
+                                                                                                         metadata)
                                 model_insights, mi_source = summarizer.generate_model_insights(results)
                                 business_recommendations, br_source = summarizer.generate_business_recommendations(
                                     df_info, metadata, results
                                 )
-                                
+
                                 st.session_state.ai_insights = {
                                     'data_quality': data_quality_report,
                                     'data_quality_source': dq_source,
@@ -574,19 +572,19 @@ elif st.session_state.original_data is not None:
                 st.caption("This was generated from a fixed template because the local LLM couldn't be reached.")
             else:
                 st.subheader("🤖 AI-Generated Executive Summary")
-            
+
             st.markdown(f"""
             <div class="ai-summary-box">
                 {st.session_state.ai_summary.replace(chr(10), '<br>')}
             </div>
             """, unsafe_allow_html=True)
-            
+
             st.divider()
-            
+
             # Additional AI Insights if available
             if hasattr(st.session_state, 'ai_insights') and st.session_state.ai_insights:
                 insights = st.session_state.ai_insights
-                
+
                 col1, col2 = st.columns(2)
 
                 dq_label = "📊 Data Quality Report" + (
@@ -595,15 +593,15 @@ elif st.session_state.original_data is not None:
                 mi_label = "🎯 Model Insights" + (
                     " (template)" if insights.get('model_insights_source') == 'fallback' else ""
                 )
-                
+
                 with col1:
                     with st.expander("📊 Data Quality Report", expanded=True):
                         st.markdown(insights['data_quality'])
-                
+
                 with col2:
                     with st.expander("🎯 Model Insights", expanded=True):
                         st.markdown(insights['model_insights'])
-                
+
                 st.divider()
 
                 br_label = "💼 Business Recommendations" + (
@@ -613,17 +611,17 @@ elif st.session_state.original_data is not None:
                     st.markdown(insights['business_recommendations'])
         else:
             st.info("👆 Process your data with AI enabled to see AI-generated insights")
-            
+
             st.markdown("""
             ### 🤖 AI-Powered Analysis
-            
+
             When you enable AI analysis, you'll get:
-            
+
             - **Executive Summary**: High-level overview of your data and model performance
             - **Data Quality Report**: Detailed assessment of data completeness and integrity
             - **Model Insights**: AI interpretation of model performance and feature importance
             - **Business Recommendations**: Actionable insights for stakeholders
-            
+
             **Setup Requirements:**
             1. Install and run LLM Studio on your local machine
             2. Configure the API URL in the sidebar (default: http://localhost:1234)

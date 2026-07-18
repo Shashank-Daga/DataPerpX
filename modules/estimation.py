@@ -23,37 +23,55 @@ class ModelEstimator:
         self.task_type = None
         self.n_jobs = -1
 
+    def split_raw(self, df: pd.DataFrame, target_col: str, task: str = 'auto'):
+        """Split RAW (unprocessed) data into train/test dataframes, before any
+        preprocessing happens. Use this + DataPreprocessor.fit_transform(train)
+        + DataPreprocessor.transform(test) + fit_and_evaluate_presplit() for a
+        leak-free pipeline. Returns (df_train, df_test, task_type)."""
+        if target_col not in df.columns:
+            raise ValueError(f"Target column '{target_col}' not found in dataframe")
+
+        y = df[target_col]
+        task_type = self._detect_task_type(y) if task == 'auto' else task
+        can_stratify = self._can_stratify(y, task_type)
+
+        try:
+            df_train, df_test = train_test_split(
+                df,
+                test_size=self.config.get('test_size', 0.2),
+                random_state=self.config.get('random_state', 42),
+                stratify=y if can_stratify else None
+            )
+        except ValueError as e:
+            logger.warning(f"Stratified split failed: {e}. Using random split instead.")
+            df_train, df_test = train_test_split(
+                df,
+                test_size=self.config.get('test_size', 0.2),
+                random_state=self.config.get('random_state', 42),
+                stratify=None
+            )
+
+        return df_train, df_test, task_type
+
     def fit_and_evaluate(self, df: pd.DataFrame, target_col: str, task: str = 'auto') -> Dict[str, Any]:
+        """Single-dataframe entry point: splits df into train/test internally.
+
+        NOTE: if df was already preprocessed (imputed/scaled/encoded) as a
+        whole before this split, statistics from the test portion have
+        leaked into those preprocessing steps. For a leak-free workflow,
+        split your raw data first and use fit_and_evaluate_presplit()
+        with a DataPreprocessor fit only on the training portion."""
         if target_col not in df.columns:
             raise ValueError(f"Target column '{target_col}' not found in dataframe")
 
         X = df.drop(columns=[target_col])
         y = df[target_col]
 
-        # Enhanced task detection
-        if task == 'auto':
-            self.task_type = self._detect_task_type(y)
-            logger.info(f"Auto-detected task type: {self.task_type}")
-        else:
-            self.task_type = task
+        task_type = self._detect_task_type(y) if task == 'auto' else task
+        logger.info(f"Task type: {task_type}" + (" (auto-detected)" if task == 'auto' else ""))
 
-        logger.info(f"Task type: {self.task_type}")
+        can_stratify = self._can_stratify(y, task_type)
 
-        # Determine if we can use stratification
-        can_stratify = False
-        if self.task_type == 'classification':
-            class_counts = y.value_counts()
-            min_class_count = class_counts.min()
-            # Need at least 2 samples per class for stratification
-            if min_class_count >= 2:
-                can_stratify = True
-            else:
-                logger.warning(
-                    f"Cannot use stratified split: minimum class has only {min_class_count} sample(s). "
-                    f"Class distribution: {dict(class_counts)}"
-                )
-
-        # Split data
         try:
             X_train, X_test, y_train, y_test = train_test_split(
                 X, y,
@@ -62,7 +80,6 @@ class ModelEstimator:
                 stratify=y if can_stratify else None
             )
         except ValueError as e:
-            # Fallback to non-stratified split if stratification fails
             logger.warning(f"Stratified split failed: {e}. Using random split instead.")
             X_train, X_test, y_train, y_test = train_test_split(
                 X, y,
@@ -70,6 +87,47 @@ class ModelEstimator:
                 random_state=self.config.get('random_state', 42),
                 stratify=None
             )
+
+        return self._fit_and_evaluate_core(X_train, X_test, y_train, y_test, task_type, target_col)
+
+    def fit_and_evaluate_presplit(self, df_train: pd.DataFrame, df_test: pd.DataFrame,
+                                   target_col: str, task: str = 'auto') -> Dict[str, Any]:
+        """Leak-free entry point: pass already-split, already-preprocessed
+        train/test dataframes (e.g. from DataPreprocessor.fit_transform(train)
+        and DataPreprocessor.transform(test)). No further splitting happens
+        here, so preprocessing statistics fit on train never touch test."""
+        if target_col not in df_train.columns:
+            raise ValueError(f"Target column '{target_col}' not found in training dataframe")
+        if target_col not in df_test.columns:
+            raise ValueError(f"Target column '{target_col}' not found in test dataframe")
+
+        X_train = df_train.drop(columns=[target_col])
+        y_train = df_train[target_col]
+        X_test = df_test.drop(columns=[target_col])
+        y_test = df_test[target_col]
+
+        task_type = self._detect_task_type(y_train) if task == 'auto' else task
+        logger.info(f"Task type: {task_type}" + (" (auto-detected)" if task == 'auto' else ""))
+
+        return self._fit_and_evaluate_core(X_train, X_test, y_train, y_test, task_type, target_col)
+
+    def _can_stratify(self, y: pd.Series, task_type: str) -> bool:
+        if task_type != 'classification':
+            return False
+        class_counts = y.value_counts()
+        min_class_count = class_counts.min()
+        if min_class_count >= 2:
+            return True
+        logger.warning(
+            f"Cannot use stratified split: minimum class has only {min_class_count} sample(s). "
+            f"Class distribution: {dict(class_counts)}"
+        )
+        return False
+
+    def _fit_and_evaluate_core(self, X_train: pd.DataFrame, X_test: pd.DataFrame,
+                                y_train: pd.Series, y_test: pd.Series,
+                                task_type: str, target_col: str) -> Dict[str, Any]:
+        self.task_type = task_type
 
         # Validate data is sufficient for training
         if len(X_train) < 10:
@@ -154,7 +212,7 @@ class ModelEstimator:
             'target_column': target_col,
             'train_size': len(X_train),
             'test_size': len(X_test),
-            'feature_count': X.shape[1],
+            'feature_count': X_train.shape[1],
             'models': {}
         }
 
@@ -196,7 +254,7 @@ class ModelEstimator:
                     else:
                         cv = KFold(n_splits=cv_folds, shuffle=True, random_state=42)
 
-                    cv_scores = cross_val_score(model, X_train, y_train, cv=cv, n_jobs=-1)
+                    cv_scores = cross_val_score(model, X_train, y_train, cv=cv, n_jobs=self.n_jobs)
                     metrics['cv_mean'] = cv_scores.mean()
                     metrics['cv_std'] = cv_scores.std()
                 except Exception as cv_error:
@@ -229,7 +287,7 @@ class ModelEstimator:
         if self.best_model and self.best_model in self.models:
             results['feature_importance'] = self._get_feature_importance(
                 self.models[self.best_model],
-                X.columns.tolist()
+                X_train.columns.tolist()
             )
 
         return results
@@ -404,7 +462,7 @@ class ModelEstimator:
                 'RandomForest': RandomForestClassifier(
                     n_estimators=100,
                     random_state=42,
-                    n_jobs=-1,
+                    n_jobs=self.n_jobs,
                     max_depth=10,
                     min_samples_split=5,
                     min_samples_leaf=2
@@ -419,8 +477,7 @@ class ModelEstimator:
                 'LogisticRegression': LogisticRegression(
                     max_iter=1000,
                     random_state=42,
-                    solver='lbfgs',
-                    multi_class='auto'
+                    solver='lbfgs'
                 )
             }
         else:
@@ -428,7 +485,7 @@ class ModelEstimator:
                 'RandomForest': RandomForestRegressor(
                     n_estimators=100,
                     random_state=42,
-                    n_jobs=-1,
+                    n_jobs=self.n_jobs,
                     max_depth=10,
                     min_samples_split=5,
                     min_samples_leaf=2

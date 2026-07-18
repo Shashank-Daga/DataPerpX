@@ -14,7 +14,8 @@ class AISummarizer:
         self.api_url = config.get('api_url', 'http://localhost:1234/v1/chat/completions')
         self.model = config.get('model', 'local-model')
 
-    def _clean_text(self, text: str) -> str:
+    @staticmethod
+    def _clean_text(text: str) -> str:
         text = text.replace('###', '').replace('##', '').replace('**', '')
         text = text.replace('■', '').replace('▪', '').replace('•', '')
         text = text.replace('\u2011', '-').replace('\xd7', 'x')
@@ -40,12 +41,12 @@ class AISummarizer:
 
         try:
             response = self._call_llm(prompt)
-            return self._clean_text(response)
+            return self._clean_text(response), 'llm'
         except Exception as e:
             logger.warning(f"AI summarization failed: {e}")
-            return self._clean_text(self._fallback_summary(df_info, metadata, results))
+            return self._clean_text(self._fallback_summary(df_info, metadata, results)), 'fallback'
 
-    def generate_data_quality_report(self, df: pd.DataFrame, metadata: Dict[str, Any]) -> str:
+    def generate_data_quality_report(self, df: pd.DataFrame, metadata: Dict[str, Any]) -> tuple:
 
         stats = {
             'total_rows': len(df),
@@ -85,12 +86,12 @@ flowing paragraphs only."""
 
         try:
             response = self._call_llm(prompt)
-            return self._clean_text(response)
+            return self._clean_text(response), 'llm'
         except Exception as e:
             logger.warning(f"Data quality report generation failed: {e}")
-            return self._clean_text(self._fallback_data_quality(stats, metadata))
+            return self._clean_text(self._fallback_data_quality(stats, metadata)), 'fallback'
 
-    def generate_model_insights(self, results: Dict[str, Any]) -> str:
+    def generate_model_insights(self, results: Dict[str, Any]) -> tuple:
 
         prompt = f"""Generate professional insights and recommendations based on these machine learning results:
 
@@ -116,10 +117,10 @@ flowing paragraphs only."""
 
         try:
             response = self._call_llm(prompt)
-            return self._clean_text(response)
+            return self._clean_text(response), 'llm'
         except Exception as e:
             logger.warning(f"Model insights generation failed: {e}")
-            return self._clean_text(self._fallback_model_insights(results))
+            return self._clean_text(self._fallback_model_insights(results)), 'fallback'
 
     def generate_feature_analysis(self, df: pd.DataFrame, target_col: str) -> tuple:
 
@@ -159,14 +160,14 @@ flowing paragraphs only."""
 
         try:
             response = self._call_llm(prompt)
-            return self._clean_text(response)
+            return self._clean_text(response), 'llm'
         except Exception as e:
             logger.warning(f"Feature analysis failed: {e}")
-            return self._clean_text(self._fallback_feature_analysis(feature_stats))
+            return self._clean_text(self._fallback_feature_analysis(feature_stats)), 'fallback'
 
     def generate_business_recommendations(self, df_info: Dict[str, Any],
                                           metadata: Dict[str, Any],
-                                          results: Optional[Dict[str, Any]] = None) -> str:
+                                          results: Optional[Dict[str, Any]] = None) -> tuple:
 
         prompt = f"""Based on this data analysis and modeling project, provide business-focused recommendations:
 
@@ -194,12 +195,13 @@ flowing paragraphs only."""
 
         try:
             response = self._call_llm(prompt)
-            return self._clean_text(response)
+            return self._clean_text(response), 'llm'
         except Exception as e:
             logger.warning(f"Business recommendations generation failed: {e}")
-            return self._clean_text(self._fallback_business_recommendations(results))
+            return self._clean_text(self._fallback_business_recommendations(results)), 'fallback'
 
-    def _format_missing_values(self, missing_values: Dict[str, int]) -> str:
+    @staticmethod
+    def _format_missing_values(missing_values: Dict[str, int]) -> str:
         if not missing_values:
             return "No missing values detected"
 
@@ -208,7 +210,8 @@ flowing paragraphs only."""
             lines.append(f"{col}: {count} missing values")
         return "\n".join(lines)
 
-    def _format_outliers(self, outliers: Dict[str, int]) -> str:
+    @staticmethod
+    def _format_outliers(outliers: Dict[str, int]) -> str:
         if not outliers:
             return "No significant outliers detected"
 
@@ -218,7 +221,8 @@ flowing paragraphs only."""
                 lines.append(f"{col}: {count} outliers")
         return "\n".join(lines) if lines else "No significant outliers detected"
 
-    def _format_model_metrics(self, models: Dict[str, Any], task_type: str) -> str:
+    @staticmethod
+    def _format_model_metrics(models: Dict[str, Any], task_type: str) -> str:
         lines = []
         for model_name, metrics in models.items():
             if task_type == 'classification':
@@ -236,7 +240,8 @@ flowing paragraphs only."""
                 lines.append(f"  Cross-Validation: {metrics.get('cv_mean', 0):.4f} ± {metrics.get('cv_std', 0):.4f}")
         return "\n".join(lines)
 
-    def _format_feature_importance(self, feature_importance: Dict[str, float]) -> str:
+    @staticmethod
+    def _format_feature_importance(feature_importance: Dict[str, float]) -> str:
         if not feature_importance:
             return "Feature importance not available"
 
@@ -245,7 +250,8 @@ flowing paragraphs only."""
             lines.append(f"{i}. {feature}: {importance:.4f}")
         return "\n".join(lines)
 
-    def _format_feature_stats(self, feature_stats: List[Dict[str, Any]]) -> str:
+    @staticmethod
+    def _format_feature_stats(feature_stats: List[Dict[str, Any]]) -> str:
         lines = []
         for stat in feature_stats:
             lines.append(f"\n{stat['name']}:")
@@ -257,7 +263,8 @@ flowing paragraphs only."""
             lines.append(f"  Kurtosis: {stat['kurtosis']:.4f}")
         return "\n".join(lines)
 
-    def _build_prompt(self, df_info: Dict[str, Any], metadata: Dict[str, Any],
+    @staticmethod
+    def _build_prompt(df_info: Dict[str, Any], metadata: Dict[str, Any],
                       results: Optional[Dict[str, Any]]) -> str:
 
         context = f"""Generate a comprehensive executive summary for this data science project.
@@ -279,10 +286,10 @@ Dataset Information:
             context += f"- Objective: {results.get('task_type', 'N/A').title()}\n"
             context += f"- Target Variable: {results.get('target_column', 'N/A')}\n"
             context += f"- Models Evaluated: {len(results.get('models', {}))}\n"
-            context += f"- Training Dataset: {results.get('train_size', 'N/A'):,} samples\n"
-            context += f"- Test Dataset: {results.get('test_size', 'N/A'):,} samples\n"
+            context += f"- Training Dataset: {results.get('train_size', 0):,} samples\n"
+            context += f"- Test Dataset: {results.get('test_size', 0):,} samples\n"
             context += f"- Best Model: {results.get('best_model', 'N/A')}\n"
-            context += f"- Performance Score: {results.get('best_score', 'N/A'):.4f}\n"
+            context += f"- Performance Score: {results.get('best_score', 0):.4f}\n"
 
             if results.get('models'):
                 context += "\nModel Performance Summary:\n"
@@ -350,22 +357,19 @@ but avoid bullet points."""
         else:
             raise Exception(f"API call failed with status {response.status_code}")
 
-    def _fallback_summary(self, df_info: Dict[str, Any], metadata: Dict[str, Any],
+    @staticmethod
+    def _fallback_summary(df_info: Dict[str, Any], metadata: Dict[str, Any],
                           results: Optional[Dict[str, Any]]) -> str:
 
-        summary_parts = []
-
-        summary_parts.append("EXECUTIVE SUMMARY")
-        summary_parts.append("")
-
-        summary_parts.append("PROJECT OVERVIEW")
-        summary_parts.append(
-            f"This analysis processed a dataset containing {metadata.get('original_shape', [0, 0])[0]:,} records")
-        summary_parts.append(
-            f"and {metadata.get('original_shape', [0, 0])[1]} initial features. Through comprehensive preprocessing")
-        summary_parts.append(
-            f"and feature engineering, the dataset was enhanced to {metadata.get('final_shape', [0, 0])[1]} features.")
-        summary_parts.append("")
+        summary_parts = [
+            "EXECUTIVE SUMMARY",
+            "",
+            "PROJECT OVERVIEW",
+            f"This analysis processed a dataset containing {metadata.get('original_shape', [0, 0])[0]:,} records",
+            f"and {metadata.get('original_shape', [0, 0])[1]} initial features. Through comprehensive preprocessing",
+            f"and feature engineering, the dataset was enhanced to {metadata.get('final_shape', [0, 0])[1]} features.",
+            "",
+        ]
 
         if metadata.get('duplicates_removed', 0) > 0 or metadata.get('missing_values'):
             summary_parts.append("DATA QUALITY IMPROVEMENTS")
@@ -402,40 +406,43 @@ but avoid bullet points."""
 
         return "\n".join(summary_parts)
 
-    def _fallback_data_quality(self, stats: Dict[str, Any], metadata: Dict[str, Any]) -> str:
-        parts = []
-        parts.append("DATA QUALITY ASSESSMENT")
-        parts.append("")
-        parts.append(f"Dataset contains {stats['total_rows']:,} rows and {stats['total_columns']} columns")
-        parts.append(
-            f"Numeric features: {stats['numeric_columns']}, Categorical features: {stats['categorical_columns']}")
-        parts.append(f"Memory footprint: {stats['memory_usage_mb']:.2f} MB")
-        parts.append("")
-        parts.append(
-            f"Data completeness: "
-            f"{((stats['total_rows'] * stats['total_columns'] - stats['missing_values_total']) / (stats['total_rows'] * stats['total_columns']) * 100):.2f}%")
+    @staticmethod
+    def _fallback_data_quality(stats: Dict[str, Any], metadata: Dict[str, Any]) -> str:
+        completeness = ((stats['total_rows'] * stats['total_columns'] - stats['missing_values_total'])
+                        / (stats['total_rows'] * stats['total_columns']) * 100)
+        parts = [
+            "DATA QUALITY ASSESSMENT",
+            "",
+            f"Dataset contains {stats['total_rows']:,} rows and {stats['total_columns']} columns",
+            f"Numeric features: {stats['numeric_columns']}, Categorical features: {stats['categorical_columns']}",
+            f"Memory footprint: {stats['memory_usage_mb']:.2f} MB",
+            "",
+            f"Data completeness: {completeness:.2f}%",
+        ]
         return "\n".join(parts)
 
-    def _fallback_model_insights(self, results: Dict[str, Any]) -> str:
-        parts = []
-        parts.append("MODEL PERFORMANCE INSIGHTS")
-        parts.append(f"Best performing model: {results.get('best_model', 'N/A')}")
-        parts.append(f"Performance score: {results.get('best_score', 0):.4f}")
-        parts.append("")
-        parts.append("This model demonstrates strong predictive capability on the test dataset.")
-        parts.append("Consider cross-validation results for production deployment assessment.")
+    @staticmethod
+    def _fallback_model_insights(results: Dict[str, Any]) -> str:
+        parts = [
+            "MODEL PERFORMANCE INSIGHTS",
+            f"Best performing model: {results.get('best_model', 'N/A')}",
+            f"Performance score: {results.get('best_score', 0):.4f}",
+            "",
+            "This model demonstrates strong predictive capability on the test dataset.",
+            "Consider cross-validation results for production deployment assessment.",
+        ]
         return "\n".join(parts)
 
-    def _fallback_feature_analysis(self, feature_stats: List[Dict[str, Any]]) -> str:
-        parts = []
-        parts.append("FEATURE ANALYSIS")
-        for stat in feature_stats[:5]:
-            parts.append(f"{stat['name']}: Mean={stat['mean']:.4f}, Std={stat['std']:.4f}")
+    @staticmethod
+    def _fallback_feature_analysis(feature_stats: List[Dict[str, Any]]) -> str:
+        parts = ["FEATURE ANALYSIS"]
+        parts.extend(f"{stat['name']}: Mean={stat['mean']:.4f}, Std={stat['std']:.4f}"
+                     for stat in feature_stats[:5])
         return "\n".join(parts)
 
-    def _fallback_business_recommendations(self, results: Optional[Dict[str, Any]]) -> str:
-        parts = []
-        parts.append("BUSINESS RECOMMENDATIONS")
+    @staticmethod
+    def _fallback_business_recommendations(results: Optional[Dict[str, Any]]) -> str:
+        parts = ["BUSINESS RECOMMENDATIONS"]
 
         if results and results.get('best_model'):
             task = results.get('task_type', 'the target variable')

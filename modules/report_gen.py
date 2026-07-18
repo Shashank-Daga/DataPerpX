@@ -276,7 +276,8 @@ class ReportGenerator:
 
         return chart_paths
 
-    def _generate_pdf_report(self, df: pd.DataFrame, metadata: Dict[str, Any],
+    @staticmethod
+    def _generate_pdf_report(df: pd.DataFrame, metadata: Dict[str, Any],
                              results: Dict[str, Any], chart_paths: Dict[str, Path],
                              output_path: Path):
 
@@ -321,6 +322,14 @@ class ReportGenerator:
         story.append(Paragraph("1. Executive Summary", heading_style))
 
         if results and 'ai_summary' in results:
+            if results.get('ai_summary_source') == 'fallback':
+                story.append(Paragraph(
+                    "<i>Note: The local AI service was unavailable, so this summary "
+                    "was generated from a template rather than an LLM.</i>",
+                    styles['Normal']
+                ))
+                story.append(Spacer(1, 8))
+
             summary_text = results['ai_summary']
             summary_text = summary_text.replace('###', '').replace('##', '').replace('**', '')
             summary_text = summary_text.replace('■', '').replace('▪', '').replace('•', '')
@@ -524,7 +533,8 @@ class ReportGenerator:
 
         doc.build(story)
 
-    def _generate_docx_report(self, df: pd.DataFrame, metadata: Dict[str, Any],
+    @staticmethod
+    def _generate_docx_report(df: pd.DataFrame, metadata: Dict[str, Any],
                               results: Dict[str, Any], chart_paths: Dict[str, Path],
                               output_path: Path):
 
@@ -539,6 +549,14 @@ class ReportGenerator:
         doc.add_heading('1. Executive Summary', 1)
 
         if results and 'ai_summary' in results:
+            if results.get('ai_summary_source') == 'fallback':
+                note = doc.add_paragraph()
+                note_run = note.add_run(
+                    "Note: The local AI service was unavailable, so this summary "
+                    "was generated from a template rather than an LLM."
+                )
+                note_run.italic = True
+
             summary_text = results['ai_summary']
             summary_text = summary_text.replace('###', '').replace('##', '').replace('**', '')
             summary_text = summary_text.replace('■', '').replace('▪', '').replace('•', '')
