@@ -75,10 +75,18 @@ class ExplainabilityAnalyzer:
                 return None
         
         if isinstance(shap_values, list):
+            # Older shap versions: list of per-class arrays, each (n_samples, n_features)
             if task_type == 'classification' and len(shap_values) == 2:
                 shap_values = shap_values[1]
             else:
                 shap_values = shap_values[0]
+        elif isinstance(shap_values, np.ndarray) and shap_values.ndim == 3:
+            # Newer shap versions: single ndarray (n_samples, n_features, n_classes)
+            if task_type == 'classification':
+                class_idx = 1 if shap_values.shape[-1] == 2 else 0
+            else:
+                class_idx = 0
+            shap_values = shap_values[:, :, class_idx]
         
         self.shap_values = shap_values
         

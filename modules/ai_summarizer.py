@@ -408,8 +408,8 @@ but avoid bullet points."""
 
     @staticmethod
     def _fallback_data_quality(stats: Dict[str, Any], metadata: Dict[str, Any]) -> str:
-        completeness = ((stats['total_rows'] * stats['total_columns'] - stats['missing_values_total'])
-                        / (stats['total_rows'] * stats['total_columns']) * 100)
+        total_cells = stats['total_rows'] * stats['total_columns']
+        completeness = ((total_cells - stats['missing_values_total']) / total_cells * 100) if total_cells else 100.0
         parts = [
             "DATA QUALITY ASSESSMENT",
             "",
